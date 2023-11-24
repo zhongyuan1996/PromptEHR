@@ -5,22 +5,22 @@ import os
 
 import numpy as np
 from transformers.generation_utils import GenerationMixin
-from transformers.generation_utils import (
+from transformers.generation.utils import (
     GreedySearchOutput, BeamSearchOutput, BeamSampleOutput, SampleOutput,
     SampleEncoderDecoderOutput,SampleDecoderOnlyOutput,
     BeamSampleDecoderOnlyOutput,BeamSampleEncoderDecoderOutput,
     BeamSearchEncoderDecoderOutput, BeamSearchDecoderOnlyOutput
     )
-from transformers.generation_beam_search import BeamSearchScorer, BeamScorer
+from transformers.generation.beam_search import BeamSearchScorer, BeamScorer
 from transformers.file_utils import ModelOutput
 from transformers.utils import logging
-from transformers.generation_stopping_criteria import (
+from transformers.generation.stopping_criteria import (
     MaxLengthCriteria,
     MaxTimeCriteria,
     StoppingCriteriaList,
     validate_stopping_criteria,
 )
-from transformers.generation_logits_process import (
+from transformers.generation.logits_process import (
     EncoderNoRepeatNGramLogitsProcessor,
     ExponentialDecayLengthPenalty,
     ForcedBOSTokenLogitsProcessor,
