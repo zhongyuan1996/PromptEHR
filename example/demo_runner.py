@@ -16,7 +16,7 @@ from pytrial.data.demo_data import load_mimic_ehr_sequence
 # from pytrial.data.demo_data import load_mimic_ehr_sequence
 # from pytrial.tasks.trial_simulation.data import SequencePatient
 
-input_dir = '/Users/yuanzhong/PycharmProjects/EMNLP2022-PromptEHR/demo_data/demo_patient_sequence/ehr/'
+input_dir = '/Users/yuanzhong/PycharmProjects/PromptEHR/demo_data/demo_patient_sequence/ehr/'
 # see the input format
 # demo = load_mimic_ehr_sequence(input_dir=input_dir, n_sample=100)
 

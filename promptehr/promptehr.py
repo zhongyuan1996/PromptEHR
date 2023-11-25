@@ -95,7 +95,7 @@ class PromptEHR(nn.Module):
         weight_decay=1e-4,
         num_worker=8,
         output_dir='./promptEHR_logs',
-        device='cuda:0',
+        device='cpu',
         ) -> None:
         super().__init__()
         self.data_tokenizer = DataTokenizer.from_pretrained('facebook/bart-base')

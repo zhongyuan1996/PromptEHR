@@ -339,9 +339,9 @@ class PromptBartDecoder(BartDecoder):
                 add_att_mask = torch.ones(inputs_prompt_embeds.shape[:-1]).to(attention_mask.device)
                 attention_mask = torch.cat([add_att_mask, attention_mask], dim=1)
 
-        attention_mask = self._prepare_decoder_attention_mask(
-            attention_mask, input_shape, inputs_embeds, past_key_values_length
-        )
+        # attention_mask = self._prepare_decoder_attention_mask(
+        #     attention_mask, input_shape, inputs_embeds, past_key_values_length
+        # )
 
         # expand encoder attention mask
         if encoder_hidden_states is not None and encoder_attention_mask is not None:
