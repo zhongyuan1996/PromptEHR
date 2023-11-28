@@ -7,7 +7,9 @@ import json
 import math
 import glob
 import random
+import copy
 from collections import defaultdict
+import warnings
 
 import dill
 import torch
@@ -37,10 +39,12 @@ class PromptEHR(nn.Module):
     token_dict: dict[list]
         A dictionary of new tokens (code events, e.g., ICD code) that the model needs to learn and generate.
 
-    n_num_feature: int
+    n_num_feature: int (default=None)
         Number of numerical patient baseline features. Notice that it assumes that the input
         baseline features are `ALWAYS` numerical feature first. That is to say,
         the input baseline feature = [num1, num2, .., num_n, cat1, cat2,...].
+        If not specified, the model will never include baseline features
+        for conditional generation!
 
     cat_cardinalities: list[int]
         The number of categories for each categorical patient baseline features.
@@ -95,10 +99,12 @@ class PromptEHR(nn.Module):
         weight_decay=1e-4,
         num_worker=8,
         output_dir='./promptEHR_logs',
-        device='cpu',
+        device='cuda:0',
+        seed=123,
         ) -> None:
         super().__init__()
         self.data_tokenizer = DataTokenizer.from_pretrained('facebook/bart-base')
+
         # will extend vocab after pass training data
         if code_type is not None:
             self.data_tokenizer.update_special_token_config(code_types=code_type)
@@ -140,12 +146,14 @@ class PromptEHR(nn.Module):
             load_best_model_at_end=True,
             logging_dir=output_dir,      # directory for storing logs
             overwrite_output_dir=True,
-            seed=123,
+            seed=seed,
             no_cuda=True if self.device == 'cpu' else False, # if set CPU
-        )
+            )
 
         # avoid dead clock when taking multiple workers for dataloaders
         os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+
+        self.model = None
 
     def fit(self, train_data, val_data=None):
         '''
@@ -201,6 +209,8 @@ class PromptEHR(nn.Module):
         '''
         if n is not None: assert isinstance(n, int), 'Input `n` should be integer.'
         if n_per_sample is not None: assert isinstance(n_per_sample, int), 'Input `n_per_sample` should be integer.'
+        assert (not n_per_sample is None) or (not n is None), 'Either `n` or `n_per_sample` should be provided to generate.'
+        assert isinstance(self.model, BartForEHRSimulation), 'Model not found! Please fit the model or load the model from pretrained checkpoint first.'
 
         n, n_per_sample = self._compute_n_per_sample(len(test_data), n, n_per_sample)
 
@@ -226,12 +236,19 @@ class PromptEHR(nn.Module):
                 visit_ = [output[code][n] for code in code_types]
                 visit.append(visit_)
             visits.append(visit)
-            feature.extend(output['x_num'])
-            feature.extend(output['x_cat'])
+            if 'x_num' in output:
+                feature.extend(output['x_num'])
+            if 'x_cat' in output:
+                feature.extend(output['x_cat'])
+            if len(feature) > 0:
+                features.append(feature)
             if 'y' in output: labels.append(output['y'])
-            features.append(feature)
         
-        features = np.stack(features, 0)
+        if len(features) > 0:
+            features = np.stack(features, 0)
+        else:
+            features = None
+
         return_res = {
             'visit':visits, 
             'feature':features, 
@@ -328,21 +345,53 @@ class PromptEHR(nn.Module):
         '''
         Load pretrained PromptEHR model and make patient EHRs generation.
         Pretrained model was learned from MIMIC-III patient sequence data.
-        '''        
-        if input_dir is None or not os.path.exists(input_dir):
-            if input_dir is None:
-                input_dir = './simulation/pretrained_promptEHR'
-            
-            if not os.path.exists(input_dir):
-                os.makedirs(input_dir)
-            
+        '''
+        if input_dir is None:
+            input_dir = './simulation/pretrained_promptEHR'
+        
+        if not os.path.exists(input_dir):
+            os.makedirs(input_dir)            
             url = constants.PRETRAINED_MODEL_URL
             download_pretrained(url, input_dir)
             print(f'Download pretrained PromptEHR model, save to {input_dir}.')
         
         print('Load pretrained PromptEHR model from', input_dir)
         self.load_model(input_dir)
+    
+    def update_config(self, config):
+        '''
+        Update the configuration of the model.
+
+        Parameters
+        ----------
+        config: dict
+            The configuration of the model.
+            Refer to the `config` in `__init__` for more details.
+        '''
+        self.config.update(config)
         
+        # update training args
+        train_args = copy.deepcopy(config)
+        for k, v in config.items():
+            if k in constants.config_to_train_args:
+                train_args[constants.config_to_train_args[k]] = v
+                train_args.pop(k)
+        
+        for k,v in train_args.items():
+            if hasattr(self.training_args, k):
+                setattr(self.training_args, k, v)
+        
+        # important when you train the model with different datasets
+        code_type = self.config['code_type']
+        self.training_args.metric_for_best_model = \
+            f'eval_ppl_{code_type[0]}' if code_type is not None else None,
+
+        print('### Model Config ###')
+        print(self.config)
+
+        print('### Training Args ###')
+        print(self.training_args)
+
     def _save_config(self, config, output_dir=None):        
         temp_path = os.path.join(output_dir, 'promptehr_config.json')
         with open(temp_path, 'w', encoding='utf-8') as f:
@@ -376,18 +425,18 @@ class PromptEHR(nn.Module):
         return config
 
     def _get_test_dataloader(self, dataset):
-        def _seq_patient_to_prompther(samples):
+        def _seq_patient_to_promptehr(samples):
             post_samples = []
             for sample in samples:
                 post_sample = {}
                 visit = sample['v']
                 post_sample.update(visit)
 
-                if not isinstance(sample['x'], list): 
-                    sample['x'] = sample['x'].tolist()
-
-                post_sample['x_num'] = torch.tensor(sample['x'][:self.config['n_num_feature']])
-                post_sample['x_cat'] = torch.tensor(sample['x'][self.config['n_num_feature']:], dtype=int)
+                if ('x' in sample) and (self.config['n_num_feature'] is not None):
+                    if not isinstance(sample['x'], list): 
+                        sample['x'] = sample['x'].tolist()
+                    post_sample['x_num'] = torch.tensor(sample['x'][:self.config['n_num_feature']])
+                    post_sample['x_cat'] = torch.tensor(sample['x'][self.config['n_num_feature']:], dtype=int)
 
                 if 'y' in sample:
                     post_sample['y'] = sample['y']
@@ -401,7 +450,7 @@ class PromptEHR(nn.Module):
                 num_workers=0,
                 pin_memory=False,
                 shuffle=False,
-                collate_fn=_seq_patient_to_prompther,
+                collate_fn=_seq_patient_to_promptehr,
                 )
         return dataloader
 
@@ -464,11 +513,13 @@ class PromptEHR(nn.Module):
         self.configuration = EHRBartConfig(self.data_tokenizer, self.model_tokenizer, n_num_feature=self.config['n_num_feature'], cat_cardinalities=self.config['cat_cardinalities'])
         self.data_tokenizer.update_special_token_config(code_types=self.config['code_type'])
 
-        # self.data_tokenizer.decode([50508, 51324,51461, 50597, 50918,]) 
-
-
     def _build_model(self):
-        self.model = BartForEHRSimulation(self.configuration, self.model_tokenizer)
+        self.model = BartForEHRSimulation(self.configuration, self.model_tokenizer, self.data_tokenizer)
+
+        # check if cuda is available using torch
+        if not torch.cuda.is_available():
+            warnings.warn('No GPU found, using CPU instead.')
+            self.device = 'cpu'
 
         if isinstance(self.device, list): 
             self._set_visible_device(self.device)
@@ -524,17 +575,23 @@ class PromptEHR(nn.Module):
             # to device
             device = 'cpu' if self.device == 'cpu' else 'cuda:0'
             if 'x_num' in data: data['x_num'] = data['x_num'].to(device)
-            if 'x_cat' in data: data['x_cat'] = data['x_cat'].to(device)
+            if 'x_cat' in data: data['x_cat'] = data['x_cat'].to(device)                
             
             inputs = self._prepare_input_for_generation(data) 
 
             # start generation
             for _ in range(n_per_sample):
                 new_record = self._generation_loop(data, inputs)
-                new_record.update({
-                    'x_cat':data['x_cat'].cpu().numpy().tolist(),
-                    'x_num':data['x_num'].cpu().numpy().tolist(),
-                })
+                if 'x_cat' in data:
+                    new_record.update({
+                        'x_cat':data['x_cat'].cpu().numpy().tolist(),
+                    })
+                    
+                if 'x_num' in data:
+                    new_record.update({
+                        'x_num':data['x_num'].cpu().numpy().tolist(),
+                    })
+
                 # add more features to new_record
                 for k,v in data.items():
                     if k not in new_record:
@@ -614,19 +671,27 @@ class PromptEHR(nn.Module):
                 
                 else:
                     sample_gen_kwargs['max_length'] = num_code+2
+
                     # do conditional generation
-                    sample_gen_kwargs['x_cat'] = data['x_cat']
-                    sample_gen_kwargs['x_num'] = data['x_num']
+                    if 'x_cat' in data:
+                        sample_gen_kwargs['x_cat'] = data['x_cat']
+                    if 'x_num' in data:
+                        sample_gen_kwargs['x_num'] = data['x_num']
 
                     new_next_tokens = self.model.generate(input_ids, **sample_gen_kwargs)
 
                     # randomly pick / rm sub code overlap
                     new_next_tokens = new_next_tokens[:,1:-1]
                     new_next_tokens = np.setdiff1d(new_next_tokens[0].cpu(), code_prompt_idx[0].cpu())
-                    if num_code-len(sub_code) > len(new_next_tokens):
-                        new_sub_idxs = np.unique(np.random.choice(np.arange(len(new_next_tokens)), num_code-len(sub_code), replace=True))
-                    else:
-                        new_sub_idxs = np.unique(np.random.choice(np.arange(len(new_next_tokens)), num_code-len(sub_code), replace=False))
+                    
+                    try:
+                        if num_code-len(sub_code) > len(new_next_tokens):
+                            new_sub_idxs = np.unique(np.random.choice(np.arange(len(new_next_tokens)), num_code-len(sub_code), replace=True))
+                        else:
+                            new_sub_idxs = np.unique(np.random.choice(np.arange(len(new_next_tokens)), num_code-len(sub_code), replace=False))
+                    except:
+                        pdb.set_trace()
+                        pass
                     new_next_tokens = torch.tensor(new_next_tokens[None, new_sub_idxs]).to(code_prompt_idx.device)
 
                     # append to the synthetic record dict

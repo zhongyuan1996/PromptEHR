@@ -29,6 +29,12 @@ def EHRBartConfig(data_tokenizer, model_tokenizer, **kwargs):
     if 'cat_cardinalities' not in kwargs:
         kwargs['cat_cardinalities'] = None
     bart_config.__dict__.update(kwargs)
+
+    # specify bos, eos token id
+    bart_config.__dict__['decoder_start_token_id'] = 0
+    bart_config.__dict__['bos_token_id'] = 0
+    bart_config.__dict__['eos_token_id'] = 1
+    bart_config.__dict__['forced_eos_token_id'] = 1
     return bart_config
 
 class DataTokenizer(BartTokenizer):
@@ -50,7 +56,6 @@ class DataTokenizer(BartTokenizer):
 
     def update_special_token_config(self, code_types):
         self.new_token_type_list = code_types
-        self.code_vocab = defaultdict(list)
         self.special_token_dict = {}
         special_token_list = []
         for code_type in code_types:
@@ -98,13 +103,20 @@ class ModelTokenizer:
                 vocab[str(org_vocab[token])] = i+1
             offset = len(vocab)
 
-            for i, token in enumerate(value): # str token = 'diag_xxx' 
-                _, index = token.split('_')
-                vocab[str(org_vocab[token])] = int(index) + offset
+            for i, token in enumerate(value): # str token = 'diag_xxx'
+                # fix: if token has more than one '_', e.g., 'diag_t_a_b_100', will only take the last '100' as the index. 
+                # _, index = token.split('_')
+                indexes = token.split('_')
+                try:
+                    index = int(indexes[-1])
+                except:
+                    raise ValueError(f"Token {token} is not a valid token, it should be splited by '_' and the last part should be a number, e.g., 'diag_100'. ")
+                vocab[str(org_vocab[token])] = index + offset
             
             # new tokenizer
             specific_tokenizer = Tokenizer(WordLevel(vocab=vocab, unk_token=constants.UNKNOWN_TOKEN))
             specific_tokenizer.pre_tokenizer = Whitespace()
+
             # num_token_dict is decided by the max index instead of number of tokens
             num_token_dict[key] = (max(vocab.values())+1) - offset
             tokenizer_dict[key] = specific_tokenizer
@@ -113,6 +125,7 @@ class ModelTokenizer:
         self.tokenizer_dict = tokenizer_dict
         self.num_token_dict = num_token_dict
         self.label_offset = offset
+
 
     def encode(self, input_ids, code_type):
         if len(input_ids.shape) > 1: # a batch

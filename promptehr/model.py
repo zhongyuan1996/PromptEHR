@@ -16,7 +16,7 @@ from .modeling_promptbart import PromptBartModel
 from . import constants
 
 class BartForEHRSimulation(BartPretrainedModel, EHRGenerationMixin):
-    def __init__(self, config: EHRBartConfig, model_tokenizer: ModelTokenizer=None):
+    def __init__(self, config: EHRBartConfig, model_tokenizer: ModelTokenizer=None, data_tokenizer: DataTokenizer=None):
         super().__init__(config)
 
         config.is_decoder = False
@@ -40,6 +40,7 @@ class BartForEHRSimulation(BartPretrainedModel, EHRGenerationMixin):
 
         # for specific modal generation
         self.model_tokenizer = model_tokenizer
+        self.data_tokenizer = data_tokenizer
 
     def forward(
         self,
@@ -116,8 +117,11 @@ class BartForEHRSimulation(BartPretrainedModel, EHRGenerationMixin):
             encoded_labels = encoded_labels - self.model_tokenizer.label_offset
             encoded_labels[encoded_labels < 0] = -100 # ignore special tokens when computing losses
 
-            if x_num is not None or x_cat is not None:
+            if (x_num is not None or x_cat is not None) \
+                and (self.model.encoder_conditional_prompt is not None) \
+                and (self.model.decoder_conditional_prompt is not None):
                 # adjust label mask if context conditional prompt is used
+
                 n_num = x_num.shape[1] if x_num is not None else 0
                 n_cat = x_cat.shape[1] if x_cat is not None else 0
                 num_label_offset = n_num + n_cat
@@ -134,16 +138,27 @@ class BartForEHRSimulation(BartPretrainedModel, EHRGenerationMixin):
             loss = loss_fct(logits.view(-1, self.lm_head[code_type].out_features), encoded_labels.view(-1))
             
             if label_mask is not None: # do evaluation, compute perplexity
-                if encoded_labels[encoded_labels > 0].shape[0] == 0:
+                if encoded_labels[encoded_labels >= 0].shape[0] == 0:
                     perplexity = None
                 else:
+                    #chop the logits and labels to only include the masked tokens
+                    if label_mask.shape[1] != encoded_labels.shape[1]:
+                        encoded_labels = encoded_labels[:, :label_mask.shape[1]]
+                        logits = logits[:, :label_mask.shape[1]]
                     target = encoded_labels[label_mask.bool()]
                     mask_logits = logits[label_mask.bool()]
 
                     # debug: move to CPU see errors
                     # prob = torch.gather(mask_logits.softmax(1).cpu(), 1, target.unsqueeze(-1).cpu())
 
-                    prob = torch.gather(mask_logits.softmax(1), 1, target.unsqueeze(-1))
+                    # prob = torch.gather(mask_logits.softmax(1), 1, target.unsqueeze(-1))
+
+                    valid_indices = target != -100
+                    valid_targets = target[valid_indices]
+                    valid_logits = mask_logits[valid_indices]
+                    prob = valid_logits.softmax(1).cpu()
+                    prob = torch.gather(prob, 1, valid_targets.unsqueeze(-1).cpu())
+
                     nll = -torch.log(prob+constants.eps)
                     perplexity = nll.exp()
                     if torch.isnan(perplexity).any():
@@ -153,6 +168,10 @@ class BartForEHRSimulation(BartPretrainedModel, EHRGenerationMixin):
         if not return_dict:
             output = (logits,) + outputs[1:]
             return ((loss,) + output) if loss is not None else output
+
+        # debug
+        # if logits.isnan().sum() > 0:
+        #     pdb.set_trace()
 
         return EHRBartOutput(
             loss=loss,
