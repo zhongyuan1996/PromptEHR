@@ -66,7 +66,7 @@ class CategoricalConditionalPrompt(nn.Module):
         assert cardinalities, 'cardinalities must be non-empty'
         category_offsets = torch.tensor([0] + cardinalities[:-1]).cumsum(0)
         self.register_buffer('category_offsets', category_offsets, persistent=False)
-        self.embeddings = nn.Embedding(sum(cardinalities), d_hidden)
+        self.embeddings = nn.Embedding(sum(cardinalities)+100, d_hidden)
         self.bias = nn.init.xavier_uniform_(nn.Parameter(Tensor(len(cardinalities),d_hidden)))
         self.proj = nn.Linear(d_hidden, d_model, bias=False)
 

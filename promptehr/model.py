@@ -141,7 +141,6 @@ class BartForEHRSimulation(BartPretrainedModel, EHRGenerationMixin):
                 if encoded_labels[encoded_labels >= 0].shape[0] == 0:
                     perplexity = None
                 else:
-                    #chop the logits and labels to only include the masked tokens
                     if label_mask.shape[1] != encoded_labels.shape[1]:
                         encoded_labels = encoded_labels[:, :label_mask.shape[1]]
                         logits = logits[:, :label_mask.shape[1]]
@@ -150,9 +149,6 @@ class BartForEHRSimulation(BartPretrainedModel, EHRGenerationMixin):
 
                     # debug: move to CPU see errors
                     # prob = torch.gather(mask_logits.softmax(1).cpu(), 1, target.unsqueeze(-1).cpu())
-
-                    # prob = torch.gather(mask_logits.softmax(1), 1, target.unsqueeze(-1))
-
                     valid_indices = target != -100
                     valid_targets = target[valid_indices]
                     valid_logits = mask_logits[valid_indices]

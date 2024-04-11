@@ -374,9 +374,16 @@ class MimicDataCollator:
                 num_token_all.append(num_token_this_adm)
 
                 if num_adm > 1 and adm < num_adm-1:
-                    # build next span predictio ntask
-                    next_span = sample[eval_code_type][adm+1]
+                    # build next span prediction task
+                    # if sample[eval_code_type][adm+1] is not None:
+                    #     next_span =  sample[eval_code_type][adm+1]
+                    #     next_span = self._process_span(next_span, eval_code_type)
+                    # else:
+                    #     next_span = []
+
+                    next_span =  sample[eval_code_type][adm+1]
                     next_span = self._process_span(next_span, eval_code_type)
+
 
                     if len(next_span) == 0:
                         adm += 1 # empty modality, try next admission
@@ -527,7 +534,14 @@ class MimicDataCollator:
 
                 elif eval_ppl_type == 'tpl' and adm < num_adm-1: # do next span prediction
                     # build next span predictio ntask
-                    next_span = sample[eval_code_type][adm+1]
+
+                    # if sample[eval_code_type][adm+1] is not None:
+                    #     next_span =  sample[eval_code_type][adm+1]
+                    #     next_span = self._process_span(next_span, eval_code_type)
+                    # else:
+                    #     next_span = []
+
+                    next_span =  sample[eval_code_type][adm+1]
                     next_span = self._process_span(next_span, eval_code_type)
 
                     if len(next_span) == 0:
@@ -658,6 +672,10 @@ class MimicDataCollator:
         return [0] + label_mask_span + [0]
 
     def _pad_special_token_head_tail(self, span, code):
+        if code not in self.__special_token_dict__:
+            start_token = f"<{code}>"
+            end_token = f"</{code}>"
+            self.__special_token_dict__[code] = [start_token, end_token]
         span_str = self.__special_token_dict__[code][0] + ' ' + span + ' ' + self.__special_token_dict__[code][1]
         return span_str
 

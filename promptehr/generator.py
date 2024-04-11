@@ -8,6 +8,7 @@ import warnings
 
 # check transformers version
 from transformers import __version__
+from transformers.generation.configuration_utils import GenerationConfig
 if __version__ <= '4.19.0':
     warnings.warn("The version of `transformers` is too low, which may cause errors in generation. Please try to run `pip install transformers --upgrade` to upgrade transformers.")
     from transformers.generation_utils import GenerationMixin
@@ -255,15 +256,29 @@ class EHRGenerationMixin(GenerationMixin):
 
         if is_sample_gen_mode:
             # get probability distribution warper
-            logits_warper = self._get_logits_warper(
-                top_k=top_k, top_p=top_p, temperature=temperature, num_beams=num_beams
-            )
+            generation_config = GenerationConfig()
+            generation_config.top_k = top_k
+            generation_config.top_p = top_p
+            generation_config.temperature = temperature
+            generation_config.num_beams = num_beams
+
+            logits_warper = self._get_logits_warper(generation_config)
+            # logits_warper = self._get_logits_warper(
+            #     top_k=top_k, top_p=top_p, temperature=temperature, num_beams=num_beams
+            # )
 
             # expand input_ids with `num_return_sequences` additional sequences per batch
+            # input_ids, model_kwargs = self._expand_inputs_for_generation(
+            #     input_ids,
+            #     expand_size=num_return_sequences,
+            #     is_encoder_decoder=self.config.is_encoder_decoder,
+            #     **model_kwargs,
+            # )
+
             input_ids, model_kwargs = self._expand_inputs_for_generation(
-                input_ids,
-                expand_size=num_return_sequences,
-                is_encoder_decoder=self.config.is_encoder_decoder,
+                num_return_sequences,  # expand_size
+                self.config.is_encoder_decoder,  # is_encoder_decoder
+                input_ids,  # input_ids
                 **model_kwargs,
             )
 

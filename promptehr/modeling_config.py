@@ -97,6 +97,13 @@ class ModelTokenizer:
         tokenizer_dict = {}
         num_token_dict = {}
         for key, value in tokenizer.code_vocab.items():
+            if key not in tokenizer.special_token_dict:
+                warnings.warn(f"Code type {key} is not in the special_token_dict, please add it to the special_token_dict. ")
+                start_token = f"<{key}>"
+                end_token = f"</{key}>"
+                tokenizer.special_token_dict[key] = [start_token, end_token]
+                tokenizer.add_tokens([start_token, end_token])
+                org_vocab = tokenizer.get_vocab()
             vocab = defaultdict(int)
             vocab[constants.UNKNOWN_TOKEN] = 0
             for i,token in enumerate(tokenizer.special_token_dict[key]):

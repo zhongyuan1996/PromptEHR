@@ -84,8 +84,8 @@ class SequencePatientBase(Dataset):
         'visit':{
             'mode': 'dense',
             # 'order': ['diag', 'prod', 'med'],
-            'order': ['diag']
-            },
+            'order': ['diag', 'drug', 'lab', 'proc'],
+        },
 
         'label':{
             'mode': 'tensor',
@@ -248,8 +248,7 @@ class SequencePatient(SequencePatientBase):
         
         'visit':{
             'mode': 'dense',
-            # 'order': ['diag', 'prod', 'med'],
-            'order': ['diag']
+            'order': ['diag', 'drug', 'lab', 'proc'],
             },
 
         'label':{

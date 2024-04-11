@@ -12,13 +12,14 @@ from collections import defaultdict
 import warnings
 
 import dill
+import pandas as pd
 import torch
 from torch import nn
 from torch.utils.data.dataloader import DataLoader
 from transformers import TrainingArguments
 import numpy as np
 from tqdm import tqdm
-
+from transformers import BartTokenizer
 from .dataset import MimicDataset, MimicDataCollator
 from .modeling_config import EHRBartConfig, DataTokenizer, ModelTokenizer
 from .trainer import PromptEHRTrainer
@@ -101,9 +102,36 @@ class PromptEHR(nn.Module):
         output_dir='./promptEHR_logs',
         device='cuda:0',
         seed=123,
+        shortICD=True,
         ) -> None:
         super().__init__()
         self.data_tokenizer = DataTokenizer.from_pretrained('facebook/bart-base')
+        if shortICD:
+            diag_map = pd.read_csv('C:\\Users\\yfz5556\\PycharmProjects\\PromptEHR\\demo_data\\demo_patient_sequence\\ehr\\diagnosis_to_int_mapping_3dig.csv')
+            diagnosis_tokens = [f'diag_{code}' for code in diag_map.iloc[:, 0]]
+            self.data_tokenizer.add_tokens(diagnosis_tokens,'diag')
+            drug_map = pd.read_csv('C:\\Users\\yfz5556\\PycharmProjects\\PromptEHR\\demo_data\\demo_patient_sequence\\ehr\\drug_to_int_mapping_3dig.csv')
+            drug_tokens = [f'drug_{code}' for code in drug_map.iloc[:, 0]]
+            self.data_tokenizer.add_tokens(drug_tokens,'drug')
+            lab_map = pd.read_csv('C:\\Users\\yfz5556\\PycharmProjects\\PromptEHR\\demo_data\\demo_patient_sequence\\ehr\\lab_to_int_mapping_3dig.csv')
+            lab_tokens = [f'lab_{code}' for code in lab_map.iloc[:, 0]]
+            self.data_tokenizer.add_tokens(lab_tokens,'lab')
+            proc_map = pd.read_csv('C:\\Users\\yfz5556\\PycharmProjects\\PromptEHR\\demo_data\\demo_patient_sequence\\ehr\\proc_to_int_mapping_3dig.csv')
+            proc_tokens = [f'proc_{code}' for code in proc_map.iloc[:, 0]]
+            self.data_tokenizer.add_tokens(proc_tokens,'proc')
+        else:
+            diag_map = pd.read_csv('C:\\Users\\yfz5556\\PycharmProjects\\PromptEHR\\demo_data\\demo_patient_sequence\\ehr\\diagnosis_to_int_mapping_5dig.csv')
+            diagnosis_tokens = [f'diag_{code}' for code in diag_map.iloc[:, 0]]
+            self.data_tokenizer.add_tokens(diagnosis_tokens,'diag')
+            drug_map = pd.read_csv('C:\\Users\\yfz5556\\PycharmProjects\\PromptEHR\\demo_data\\demo_patient_sequence\\ehr\\drug_to_int_mapping_5dig.csv')
+            drug_tokens = [f'drug_{code}' for code in drug_map.iloc[:, 0]]
+            self.data_tokenizer.add_tokens(drug_tokens,'drug')
+            lab_map = pd.read_csv('C:\\Users\\yfz5556\\PycharmProjects\\PromptEHR\\demo_data\\demo_patient_sequence\\ehr\\lab_to_int_mapping_5dig.csv')
+            lab_tokens = [f'lab_{code}' for code in lab_map.iloc[:, 0]]
+            self.data_tokenizer.add_tokens(lab_tokens,'lab')
+            proc_map = pd.read_csv('C:\\Users\\yfz5556\\PycharmProjects\\PromptEHR\\demo_data\\demo_patient_sequence\\ehr\\proc_to_int_mapping_5dig.csv')
+            proc_tokens = [f'proc_{code}' for code in proc_map.iloc[:, 0]]
+            self.data_tokenizer.add_tokens(proc_tokens,'proc')
 
         # will extend vocab after pass training data
         if code_type is not None:
@@ -177,6 +205,7 @@ class PromptEHR(nn.Module):
 
         # start training
         self._fit(train_data=train_data,val_data=val_data)
+
     
     def predict(self, test_data, n_per_sample=None, n=None, sample_config=None, verbose=None):
         '''

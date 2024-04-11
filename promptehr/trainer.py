@@ -1,3 +1,4 @@
+import gc
 import pdb
 from typing import Optional, List, Tuple, Dict, Union, Any
 
@@ -103,24 +104,25 @@ class PromptEHRTrainer(Trainer):
         """
         # set evaluation mode
         self.model.eval()
-
+        with torch.no_grad():
         # memory metrics - must set up as early as possible
-        self._memory_tracker.start()
-        eval_loop = self.evaluation_loop
-        code_type_list = self.data_collator.__code_type_list__
-        output_metrics = {}
-        for code_type in code_type_list:
-            eval_dataloader = self.get_eval_dataloader(eval_dataset, code_type=code_type) # change the data collator
-            output = eval_loop(
-                eval_dataloader,
-                description="Evaluation",
-                # No point gathering the predictions if there are no metrics, otherwise we defer to
-                # self.args.prediction_loss_only
-                prediction_loss_only=False,
-                ignore_keys=ignore_keys,
-                metric_key_prefix=metric_key_prefix,
-            )
-            output_metrics[f'{metric_key_prefix}_ppl_{code_type}'] = output.metrics['eval_loss']
+            self._memory_tracker.start()
+            eval_loop = self.evaluation_loop
+            code_type_list = self.data_collator.__code_type_list__
+            output_metrics = {}
+            for code_type in code_type_list:
+                eval_dataloader = self.get_eval_dataloader(eval_dataset, code_type=code_type) # change the data collator
+                output = eval_loop(
+                    eval_dataloader,
+                    description="Evaluation",
+                    # No point gathering the predictions if there are no metrics, otherwise we defer to
+                    # self.args.prediction_loss_only
+                    prediction_loss_only=False,
+                    ignore_keys=ignore_keys,
+                    metric_key_prefix=metric_key_prefix,
+                )
+                output_metrics[f'{metric_key_prefix}_ppl_{code_type}'] = output.metrics['eval_loss']
+                gc.collect()
 
         output.metrics.update(output_metrics)
         output.metrics.pop('eval_loss')
@@ -362,7 +364,6 @@ class PromptEHRTrainer(Trainer):
             logits and labels (each being optional).
         """
         has_labels = all(inputs.get(k) is not None for k in self.label_names)
-        # has_labels = all(inputs.get(k) is not None for k in ['labels'])
         inputs = self._prepare_inputs(inputs)
         if ignore_keys is None:
             if hasattr(self.model, "config"):
@@ -373,7 +374,6 @@ class PromptEHRTrainer(Trainer):
         # labels may be popped when computing the loss (label smoothing for instance) so we grab them first.
         if has_labels:
             labels = nested_detach(tuple(inputs.get(name) for name in self.label_names))
-            # labels = nested_detach(tuple(inputs.get(name) for name in ['labels']))
             if len(labels) == 1:
                 labels = labels[0]
         else:
